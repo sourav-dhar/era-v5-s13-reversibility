@@ -1,0 +1,35 @@
+// What the measurements say. Every number here is in results/full/*.json.
+window.S13_FINDINGS = [
+  ['Midpoint won; the start barely mattered',
+   'Of seven variants, midpoint (h = 0.5, no-kick start) reached 4.506 against 4.448 for the standard model. Euler vs no-kick moved the loss by only 0.01–0.02, inside the 0.014 seed-to-seed spread. The rule mattered twenty times more: every blend variant lost by more than 0.4.'],
+  ['The architecture saves nothing; the backward does',
+   'The reversible rule differentiated by plain autograd fits exactly the same batch as the standard model (44, or 184 with a chunked head). All of the saving comes from the custom backward that discards the states.'],
+  ['In a 20M model the logits are the activation that matters',
+   'At batch 32 the 50k-vocabulary logits take 16 of the step\'s 25 GiB. Reversibility alone raised the maximum batch only 1.3× (44 → 57). With the loss computed in 4,096-token chunks it reached 1,152 sequences, 26× standard and 13% beyond checkpointing.'],
+  ['Cheaper than the lesson predicted',
+   'Reversible training ran at 0.78–0.81× the standard speed at the same batch, against the 0.67–0.77× implied by the 30–50% overhead estimate. Recomputing a whole forward would give 0.75×; only the stack is recomputed, not the 50k-wide head or the optimizer step.'],
+  ['A bigger batch bought capacity, not speed',
+   'Every configuration saturates the A100 by batch 16–32. The paper\'s 2× throughput came from a 96-layer model stuck at batch 52. At 12 layers, the freed memory goes to longer sequences and bigger batches, not to tokens per second.'],
+  ['A million tokens on one 40 GB card',
+   'At batch 1 the reversible stack trained a 1,048,576-token sequence in 32.1 GiB (the probe cap), while the standard model stopped at 193,536. Each added token costs 199 KB stored, 39 KB checkpointed and 33 KB reversible. At this extreme checkpointing nearly ties (1,015,808 tokens).'],
+  ['The maximum batch is a capability, not a recipe',
+   'At 1,117 sequences the 50M-token budget is only 43 optimizer steps, and validation loss stopped at 7.56. √-scaled learning rates made every max-batch run worse. For a 20M model on 50M tokens, the freed memory is worth more as context or depth than as batch.'],
+  ['Depth really is free',
+   'From 2 to 64 layers, peak memory grows 151 MiB per layer with stored activations, 32 MiB with checkpointing and 20 MiB reversible. 20 MiB is less than the 27 MiB of weights, gradients and Adam state each layer brings by itself.'],
+  ['Blend lost because its gradients were wrong',
+   'On the trained checkpoints, the reversible gradient for layer 0 points 73° away from the true one for blend (cosine 0.30) and 63° for leapfrog (0.45). The embedding state has norm ≈ 1 under states of 30–1,150, so rebuilding it in bf16 is catastrophic cancellation. A larger step did not help blend: it lost even more.'],
+  ['Anchoring two states fixes it',
+   'Storing s₀ and s₁ as well costs 3 MiB per sequence and no speed. It took blend from 4.896 to 4.444 and leapfrog from 4.530 to 4.421. A second seed puts anchored leapfrog at 4.428 against standard\'s 4.441, within noise, while plain midpoint\'s +0.07 gap is real.'],
+];
+
+window.S13_CLAIMS = [
+  ['§16 “The memory this saves does not depend on the number of layers.”', 'Reversible peak grows 20 MiB per layer from 2 to 64 layers, less than the parameters themselves; stored activations grow 151 MiB per layer.', 'ok'],
+  ['§16 overhead of “30% to 50% of a step”', '19–22% slower than standard at the same batch, and 4–8% slower than activation checkpointing.', 'ok'],
+  ['§16 a batch about 10× larger', '1.3× with every logit materialised, 26× with a chunked head. The gain depends on what else holds memory.', 'part'],
+  ['§16 the throughput gain “comes from the batch size the saved memory allows”', 'At 12 layers throughput saturates by batch 32; the bigger batch added no speed.', 'part'],
+  ['§16 “The forward pass must be deterministic”', 'Necessary but not sufficient: deterministic bf16 blocks still cannot rebuild the bottom of the stack.', 'part'],
+  ['§16 “The rule is only marginally stable”', 'Blend\'s backward amplifies error ×2 per layer, and its layer-0 gradient cosine was 0.30. It is the backward pass that is unstable.', 'ok'],
+  ['§17 reversibility “moves the constraint”', 'It moved twice: to the LM head (16 of 25 GiB), then to the precision of the bottom layers.', 'ok'],
+  ['§17 the length at which one sequence stops fitting “moves out by about two orders of magnitude”', 'At 20M parameters and batch 1: 193,536 tokens stored, at least 1,048,576 reversible (5.4×, capped by the probe). The per-token cost fell 6× (199 KB → 33 KB), because the 12-layer depth term is gone; the 96-layer model in the lesson would gain more.', 'part'],
+  ['§1 activations ≈ 34 bytes per token per hidden unit per layer', '41.5 bytes, measured from the slope of the depth sweep (plausibly fp32 RoPE and LayerNorm inputs, which the original count does not include).', 'ok'],
+];

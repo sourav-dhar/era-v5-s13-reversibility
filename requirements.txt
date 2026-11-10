@@ -1,0 +1,11 @@
+torch>=2.5
+numpy
+tiktoken
+datasets
+matplotlib
+pandas
+nbformat
+nbconvert
+ipykernel
+modal
+pytest

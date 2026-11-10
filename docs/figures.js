@@ -1,0 +1,17 @@
+window.S13_FIGURES = [
+  ['01_batch_search', 'Fixing the batch: peak memory of one step, by micro-batch'],
+  ['01_baseline_curves', 'Standard vs activation checkpointing on the same tokens'],
+  ['02_variants', 'Seven reversible variants against the standard model'],
+  ['02_gradnorm', 'Gradient norm through training, every variant'],
+  ['02_step_ablation', 'Step-size ablation: midpoint vs blend at equal weight'],
+  ['03_max_batch', 'Maximum micro-batch, eight configurations'],
+  ['03_composition', 'What fills the card at batch 32'],
+  ['03_throughput', 'Tokens per second against batch size'],
+  ['03_maxbatch_runs', 'Training at the maximum batch'],
+  ['04_depth', 'Peak memory from 2 to 64 layers'],
+  ['04_maxseq', 'Longest sequence that trains at batch 1'],
+  ['04_timeline', 'Allocator trace through one training step'],
+  ['04_drift', 'Rebuilt-state error and gradient agreement, by layer'],
+  ['04_anchor_fidelity', 'Anchoring repairs the gradient'],
+  ['04_anchor_runs', 'Retrained with anchoring'],
+];

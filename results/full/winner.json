@@ -1,0 +1,8 @@
+{
+ "integrator": "midpoint",
+ "h": 0.5,
+ "a": 0.5,
+ "bootstrap": "none",
+ "name": "rev-midpoint-nokick",
+ "final_val": 4.506361838430166
+}

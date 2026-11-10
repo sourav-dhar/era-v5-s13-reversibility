@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+/data/
+/checkpoints/
+*.pt
+.venv/
+.DS_Store
+/scratch_nb/
+/results/quick/
+/results/smoke/

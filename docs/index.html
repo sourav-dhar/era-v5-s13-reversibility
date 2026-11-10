@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Run It Backwards</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="ERA V5 Session 13: a 20M GPT trained on 50M tokens with stored activations, with a reversible midpoint stack, and with reversibility at the maximum batch. Every number measured on an A100.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a lab notebook that reads top-to-bottom — thesis + live stack, then the three runs the brief
+   asked for, then the anatomy. Teal is always "reversible", blue "standard", orange "checkpointing". */
+:root{
+  --bg:#f5f6f4; --panel:#ffffff; --ink:#111a1f; --ink-2:#4b5a61; --muted:#86939a; --rule:#dfe4e2; --rule-2:#eef1ef;
+  --rev:#1baf7a; --rev-soft:#d7f2e7; --std:#2a78d6; --ckpt:#eb6834; --unr:#eda100; --blend:#e87ba4; --leap:#6250d6; --bad:#e34948;
+  --grid:#e6eae8; --code:#eef2f0;
+  --f-display:'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+  --f-body:'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --f-mono:'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --r:10px; --wrap:1120px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0f1416; --panel:#151c1f; --ink:#e9eeec; --ink-2:#a9b6b3; --muted:#71807e; --rule:#26302f; --rule-2:#1b2326;
+  --rev:#199e70; --rev-soft:#123a2d; --std:#3987e5; --ckpt:#d95926; --unr:#c98500; --blend:#d55181; --leap:#9085e9; --bad:#e66767;
+  --grid:#222c2e; --code:#1b2427; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0f1416; --panel:#151c1f; --ink:#e9eeec; --ink-2:#a9b6b3; --muted:#71807e; --rule:#26302f; --rule-2:#1b2326;
+  --rev:#199e70; --rev-soft:#123a2d; --std:#3987e5; --ckpt:#d95926; --unr:#c98500; --blend:#d55181; --leap:#9085e9; --bad:#e66767;
+  --grid:#222c2e; --code:#1b2427; color-scheme:dark }
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth; scroll-padding-top:64px}
+@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *{animation:none!important; transition:none!important} }
+body{margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 var(--f-body); -webkit-font-smoothing:antialiased}
+body::before{content:""; position:fixed; inset:0 0 auto; height:env(safe-area-inset-top,0px); z-index:30; background:var(--bg)}
+.wrap{max-width:var(--wrap); margin:0 auto; padding-left:max(16px, env(safe-area-inset-left,0px)); padding-right:max(16px, env(safe-area-inset-right,0px))}
+a{color:inherit; text-decoration-color:var(--rev); text-underline-offset:3px}
+a:focus-visible, button:focus-visible, input:focus-visible{outline:2px solid var(--rev); outline-offset:2px}
+h1,h2,h3{font-family:var(--f-display); letter-spacing:-.01em; text-wrap:balance; margin:0}
+h2{font-size:clamp(1.6rem, 3.2vw, 2.2rem); font-weight:700; line-height:1.15}
+h3{font-size:1.12rem; font-weight:700}
+p{margin:0; max-width:68ch}
+.mono, code{font-family:var(--f-mono); font-size:.88em}
+code{background:var(--code); padding:.08em .35em; border-radius:4px}
+.eyebrow{font:500 .74rem/1 var(--f-mono); letter-spacing:.12em; text-transform:uppercase; color:var(--muted)}
+.lede{font-size:1.08rem; color:var(--ink-2)}
+.num{font-variant-numeric:tabular-nums}
+
+/* nav */
+nav.top{position:sticky; top:env(safe-area-inset-top,0px); z-index:20; background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--rule)}
+nav.top .wrap{display:flex; align-items:center; gap:20px; height:52px; overflow-x:auto; scrollbar-width:none}
+nav.top .brand{font:700 .95rem var(--f-display); white-space:nowrap; display:flex; align-items:center; gap:8px}
+nav.top .brand i{width:10px; height:10px; border-radius:50%; background:var(--rev); box-shadow:0 0 0 4px var(--rev-soft)}
+nav.top a{font-size:.86rem; color:var(--ink-2); text-decoration:none; white-space:nowrap}
+nav.top a:hover{color:var(--ink)}
+nav.top .sp{flex:1}
+
+section{padding-block:72px; border-top:1px solid var(--rule)}
+section:first-of-type{border-top:0}
+.head{display:grid; gap:12px; margin-bottom:32px}
+
+/* hero */
+.hero{padding-block:56px 64px}
+.hero-grid{display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1fr); gap:48px; align-items:center}
+.hero h1{font-size:clamp(2.6rem, 7vw, 5.2rem); font-weight:800; line-height:.95; letter-spacing:-.035em}
+.hero h1 em{font-style:normal; color:var(--rev); display:inline-block; animation:rewind 1.4s cubic-bezier(.6,0,.2,1) .5s both}
+@keyframes rewind{0%{transform:scaleX(-1); opacity:.55} 55%{transform:scaleX(-1)} 100%{transform:scaleX(1); opacity:1}}
+.hero .lede{margin-top:20px}
+.brief{margin-top:22px; display:grid; gap:8px; font-size:.92rem}
+.brief div{display:grid; grid-template-columns:28px 1fr; gap:8px; color:var(--ink-2)}
+.brief b{font:500 .78rem/1.9 var(--f-mono); color:var(--rev)}
+
+.stage{background:var(--panel); border:1px solid var(--rule); border-radius:14px; padding:18px 18px 14px}
+.stage-top{display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:8px}
+.seg{display:inline-flex; background:var(--rule-2); border-radius:8px; padding:3px}
+.seg button{border:0; background:transparent; color:var(--ink-2); font:500 .8rem var(--f-body); padding:6px 10px; border-radius:6px; cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--panel); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.btn{border:1px solid var(--rule); background:var(--panel); color:var(--ink); font:500 .8rem var(--f-body); padding:6px 12px; border-radius:7px; cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+#stack svg{width:100%; height:auto; display:block}
+.caption{font-size:.8rem; color:var(--muted); margin-top:6px; min-height:2.6em}
+
+/* KPI strip */
+.kpis{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; background:var(--rule); border:1px solid var(--rule); border-radius:var(--r); overflow:hidden; margin-top:44px}
+.kpi{background:var(--panel); padding:18px 18px 16px; display:grid; gap:6px; align-content:start}
+.kpi .v{font:700 clamp(1.7rem,3.4vw,2.4rem)/1 var(--f-display); letter-spacing:-.02em}
+.kpi .v small{font-size:.5em; color:var(--muted); font-weight:500; margin-left:2px}
+.kpi .l{font-size:.82rem; color:var(--ink-2); line-height:1.4}
+
+/* cards + charts */
+.grid2{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px}
+.grid3{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px}
+.panel{background:var(--panel); border:1px solid var(--rule); border-radius:var(--r); padding:20px; min-width:0}
+.panel h3{margin-bottom:4px}
+.panel .sub{font-size:.84rem; color:var(--muted); margin-bottom:12px}
+.chart{position:relative; width:100%}
+.chart svg{display:block; width:100%; height:auto; overflow:visible}
+.chart text{font-family:var(--f-body); fill:var(--muted); font-size:11px}
+.chart .ax{stroke:var(--rule)} .chart .gl{stroke:var(--grid)}
+.tip{position:absolute; pointer-events:none; background:var(--ink); color:var(--bg); font-size:.76rem; line-height:1.45; padding:7px 9px; border-radius:6px; white-space:nowrap; transform:translate(-50%, calc(-100% - 10px)); opacity:0; transition:opacity .12s; z-index:5}
+.tip.on{opacity:1}
+.tip i{display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px; vertical-align:0}
+.legend{display:flex; flex-wrap:wrap; gap:6px 14px; margin:4px 0 10px; font-size:.8rem; color:var(--ink-2)}
+.legend button{display:inline-flex; align-items:center; gap:6px; border:0; background:none; color:inherit; font:inherit; cursor:pointer; padding:2px 0}
+.legend button[aria-pressed="false"]{opacity:.35}
+.legend i{width:14px; height:3px; border-radius:2px; display:inline-block}
+
+.run-card{display:grid; gap:12px; align-content:start}
+.run-card .tag{font:500 .72rem var(--f-mono); color:var(--muted); letter-spacing:.06em; text-transform:uppercase}
+.run-card h3{font-size:1.25rem}
+.stats{display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:.88rem; margin:0}
+.stats dt{color:var(--muted)} .stats dd{margin:0; text-align:right; font-variant-numeric:tabular-nums; font-family:var(--f-mono); font-size:.86rem}
+.swatch{display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px}
+
+.tbl{overflow-x:auto; border:1px solid var(--rule); border-radius:var(--r); background:var(--panel)}
+table{border-collapse:collapse; width:100%; font-size:.84rem}
+th,td{padding:9px 12px; text-align:right; border-bottom:1px solid var(--rule-2); white-space:nowrap; font-variant-numeric:tabular-nums}
+th{font:500 .72rem var(--f-mono); letter-spacing:.05em; text-transform:uppercase; color:var(--muted); background:var(--rule-2); cursor:pointer; user-select:none}
+td:first-child, th:first-child{text-align:left} td:nth-child(2), th:nth-child(2){text-align:left}
+tr:last-child td{border-bottom:0}
+tr.win td{background:color-mix(in srgb, var(--rev) 9%, transparent)}
+
+.eq{font-family:var(--f-mono); font-size:clamp(.9rem,2vw,1.12rem); background:var(--code); border-radius:var(--r); padding:16px 18px; overflow-x:auto; white-space:nowrap; line-height:2}
+.eq .g{color:var(--rev); font-weight:500}
+.pill{display:inline-block; font:500 .72rem var(--f-mono); padding:3px 8px; border-radius:99px; border:1px solid currentColor}
+.pill.ok{color:var(--rev)} .pill.part{color:var(--unr)} .pill.no{color:var(--bad)}
+.note{font-size:.88rem; color:var(--ink-2); border-left:2px solid var(--rev); padding-left:14px}
+.findings{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 28px; counter-reset:f}
+.finding{display:grid; gap:6px}
+.finding h3{font-size:1.02rem}
+.finding p{font-size:.92rem; color:var(--ink-2)}
+.range{display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-size:.86rem; color:var(--ink-2)}
+input[type=range]{accent-color:var(--rev); width:180px}
+input[type=number]{width:80px; font:500 .9rem var(--f-mono); padding:6px 8px; border:1px solid var(--rule); border-radius:6px; background:var(--panel); color:var(--ink)}
+.samples{display:grid; gap:10px}
+.algo{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:20px}
+.algo .st{position:relative; background:var(--panel); border:1px solid var(--rule); border-radius:var(--r); padding:14px 14px 12px; transition:border-color .3s, box-shadow .3s, transform .3s; min-width:0}
+.algo .st.on{border-color:var(--rev); box-shadow:0 0 0 3px var(--rev-soft); transform:translateY(-2px)}
+.algo .st b{font:500 .7rem var(--f-mono); color:var(--rev); letter-spacing:.08em}
+.algo .st code{display:block; margin:8px 0 6px; white-space:nowrap; overflow-x:auto; font-size:.8rem; background:var(--code); padding:6px 8px}
+.algo .st p{font-size:.82rem; color:var(--ink-2)}
+.ledger{display:grid; gap:14px}
+.lrow{display:grid; grid-template-columns:minmax(120px,190px) minmax(0,1fr) 92px; gap:12px; align-items:center; font-size:.86rem}
+.lrow .lab{color:var(--ink-2)}
+.ltrack{height:26px; background:var(--rule-2); border-radius:6px; overflow:hidden; display:flex}
+.ltrack span{height:100%; transition:width .9s cubic-bezier(.2,.8,.2,1)}
+.lrow .val{font:500 .86rem var(--f-mono); text-align:right; font-variant-numeric:tabular-nums}
+.lkey{display:flex; flex-wrap:wrap; gap:6px 16px; font-size:.8rem; color:var(--ink-2)}
+.lkey i{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px}
+.gallery{display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px}
+.gallery a{display:block; background:var(--panel); border:1px solid var(--rule); border-radius:var(--r); overflow:hidden; text-decoration:none; transition:transform .2s, border-color .2s}
+.gallery a:hover{transform:translateY(-2px); border-color:var(--rev)}
+.gallery img{display:block; width:100%; aspect-ratio:16/9; object-fit:cover; object-position:top; background:#fff}
+.gallery span{display:block; padding:8px 10px; font-size:.78rem; color:var(--ink-2)}
+@media (max-width: 900px){ .algo{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width: 520px){ .algo{grid-template-columns:minmax(0,1fr)} .lrow{grid-template-columns:minmax(0,1fr) 80px} .lrow .lab{grid-column:1/-1} }
+.sample{font-size:.86rem; color:var(--ink-2); background:var(--rule-2); border-radius:8px; padding:10px 12px}
+.sample b{color:var(--ink); font-weight:600}
+footer{padding-block:40px 64px; border-top:1px solid var(--rule); font-size:.85rem; color:var(--muted)}
+
+@media (max-width: 900px){
+  .hero-grid,.grid2,.findings{grid-template-columns:minmax(0,1fr)}
+  .grid3{grid-template-columns:minmax(0,1fr)}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  section{padding-block:52px}
+}
+</style>
+</head>
+<body>
+<nav class="top" aria-label="Sections"><div class="wrap">
+  <span class="brand"><i></i>s13 · reversible</span>
+  <a href="#mechanism">Mechanism</a><a href="#ledger">Ledger</a><a href="#runs">The three runs</a><a href="#maxbatch">Max batch</a>
+  <a href="#anatomy">Anatomy</a><a href="#drift">Drift</a><a href="#anchor">Anchoring</a><a href="#cost">Cost</a><a href="#findings">Findings</a>
+  <span class="sp"></span>
+  <a href="https://github.com/sourav-dhar/era-v5-s13-reversibility">GitHub ↗</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="hero-grid">
+    <div>
+      <div class="eyebrow">ERA V5 · Session 13 · Model &amp; pipeline parallel</div>
+      <h1 style="margin-top:14px">Run it <em>backwards</em>.</h1>
+      <p class="lede">A 20M-parameter GPT trained on 50M FineWeb-Edu tokens on one A100, three ways: storing every activation, rebuilding them from two stored states with a reversible stack, and using the freed memory for the largest batch the card can hold.</p>
+      <div class="brief">
+        <div><b>01</b><span>Train a 20M LLM for 50M tokens. Fix a batch size that runs.</span></div>
+        <div><b>02</b><span>Train again with reversibility. Report which variant worked: midpoint, Euler, …</span></div>
+        <div><b>03</b><span>Train again with reversibility at the maximum batch size.</span></div>
+      </div>
+    </div>
+    <div class="stage" id="stage">
+      <div class="stage-top">
+        <div class="seg" role="group" aria-label="Memory mode">
+          <button type="button" id="m-std" aria-pressed="false">Store activations</button>
+          <button type="button" id="m-rev" aria-pressed="true">Reversible</button>
+        </div>
+        <button type="button" class="btn" id="play">Pause</button>
+      </div>
+      <div id="stack"></div>
+      <div class="caption" id="stack-cap">Forward pass.</div>
+    </div>
+  </div>
+  <div class="kpis" id="kpis"></div>
+</div></header>
+
+<main>
+<section id="mechanism"><div class="wrap">
+  <div class="head">
+    <div class="eyebrow">The rule</div>
+    <h2>Add the block's output to the state two layers back</h2>
+    <p class="lede">An ordinary residual block, <code>s⁺ = s + f(s)</code>, cannot be undone: recovering <code>s</code> needs <code>f(s)</code>. The reversible family evaluates the block at the state <em>in between</em>, which the backward pass already holds. So each layer's input can be rebuilt from the two states above it.</p>
+  </div>
+  <div class="grid2">
+    <div class="panel">
+      <h3>One rule, three integrators</h3>
+      <div class="sub">Gal, Eliasof, Turek, Ascher, Treister &amp; Haber, 2025 (arXiv 2512.02056)</div>
+      <div class="eq">s<sub>k+1</sub> = <span class="g">α</span>·s<sub>k−1</sub> + <span class="g">β</span>·s<sub>k</sub> + <span class="g">γ</span>·f<sub>k</sub>(s<sub>k</sub>)<br>s<sub>k−1</sub> = ( s<sub>k+1</sub> − <span class="g">β</span>·s<sub>k</sub> − <span class="g">γ</span>·f<sub>k</sub>(s<sub>k</sub>) ) / <span class="g">α</span></div>
+      <div class="tbl" style="margin-top:14px"><table>
+        <thead><tr><th>integrator</th><th>α</th><th>β</th><th>γ</th><th>bwd growth</th></tr></thead>
+        <tbody>
+          <tr><td><span class="swatch" style="background:var(--rev)"></span>midpoint</td><td>1</td><td>0</td><td>2h</td><td>×1.00</td></tr>
+          <tr><td><span class="swatch" style="background:var(--blend)"></span>blend (Lightning LM: a = 0.5)</td><td>a</td><td>1−a</td><td>h</td><td>×2.00</td></tr>
+          <tr><td><span class="swatch" style="background:var(--leap)"></span>leapfrog</td><td>−1</td><td>2</td><td>h²</td><td>×1.00 (double root)</td></tr>
+        </tbody></table></div>
+      <p class="note" style="margin-top:14px">“Euler” enters in two places. A two-step rule needs a second starting state, and the <b>Euler start</b> makes it with one ordinary residual step: <code>s₁ = s₀ + h·f₀(s₀)</code>. The alternative, <b>no-kick</b>, uses <code>s₁ = s₀</code>. The blend rule also behaves like forward Euler <em>in expectation</em> (paper §3.2).</p>
+    </div>
+    <div class="panel">
+      <h3>Why |α| must be 1: run the recurrence backwards</h3>
+      <div class="sub">Roots of z² = βz + α. The backward pass multiplies rounding error by |1/z| per layer.</div>
+      <div class="range"><label for="alpha">blend coefficient a</label><input id="alpha" type="range" min="0.3" max="1" step="0.01" value="0.5"><span class="mono num" id="alpha-v">0.50</span></div>
+      <div class="chart" id="roots" style="margin-top:6px"></div>
+      <p class="sub" id="roots-cap" style="margin-top:8px"></p>
+    </div>
+  </div>
+  <div class="algo" id="algo" aria-label="One step of the reversible backward pass">
+    <div class="st"><b>1 · RECOMPUTE</b><code>fx = f_k(s[k])</code><p>Run block k again, with a graph, at the state the backward pass already holds.</p></div>
+    <div class="st"><b>2 · REBUILD</b><code>s[k-1] = (s[k+1] − β·s[k] − γ·fx) / α</code><p>Read the rule right to left to recover the state below. Nothing was stored for it.</p></div>
+    <div class="st"><b>3 · BACKPROP</b><code>ḡ[k] += γ·Jᵀḡ[k+1] + β·ḡ[k+1]</code><p>Push the adjoint through the block once, collecting the weight gradients on the way.</p></div>
+    <div class="st"><b>4 · DROP</b><code>ḡ[k-1] = α·ḡ[k+1];  k ← k−1</code><p>Free the block's graph and s[k+1]. Memory never holds more than one layer's work.</p></div>
+  </div>
+</div></section>
+
+<section id="ledger"><div class="wrap">
+  <div class="head">
+    <div class="eyebrow">What one sequence costs</div>
+    <h2>In a 20M model the logits, not the layers, fill the card</h2>
+    <p class="lede">Memory per 1,024-token sequence, from the lesson's §1 arithmetic applied to this model: 34 bytes per token per hidden unit per layer, the 50,304-wide logits in bf16 and fp32, and two fp32 boundary states for the reversible stack. The 0.6 GiB training state is paid once per model, not per sequence.</p>
+  </div>
+  <div class="panel">
+    <div class="stage-top" style="margin-bottom:16px">
+      <div class="seg" role="group" aria-label="Configuration">
+        <button type="button" data-led="std" aria-pressed="true">Standard</button>
+        <button type="button" data-led="rev" aria-pressed="false">Reversible</button>
+        <button type="button" data-led="revc" aria-pressed="false">Reversible + chunked head</button>
+      </div>
+      <span class="mono num" id="led-total" style="font-size:.9rem"></span>
+    </div>
+    <div class="ledger" id="led"></div>
+    <div class="lkey" style="margin-top:16px"><span><i style="background:var(--std)"></i>stored layer activations</span><span><i style="background:var(--rev)"></i>two boundary states + one layer at work</span><span><i style="background:var(--bad);opacity:.6"></i>LM-head logits</span></div>
+  </div>
+</div></section>
+
+<section id="runs"><div class="wrap">
+  <div class="head">
+    <div class="eyebrow">The three runs the brief asked for</div>
+    <h2>Same 50M tokens, same order, every run</h2>
+    <p class="lede">The training file is cut into 1,025-token windows and shuffled once with a fixed seed. Batch size only changes how the windows are grouped into optimizer steps. Dropout and weight decay are 0 everywhere, so the residual stream is the only thing that varies.</p>
+  </div>
+  <div class="grid3" id="run-cards"></div>
+  <div class="panel" style="margin-top:20px">
+    <h3>Validation loss against tokens seen</h3>
+    <div class="sub">Click a legend entry to hide a series. Hover for values.</div>
+    <div class="legend" id="loss-legend"></div>
+    <div class="chart" id="loss-chart"></div>
+  </div>
+  <div class="grid2" style="margin-top:20px">
+    <div class="panel">
+      <h3>Which variant worked</h3>
+      <div class="sub">Final validation loss on 2M held-out tokens, against the standard model at the same batch</div>
+      <div class="chart" id="variant-bars"></div>
+    </div>
+    <div class="panel">
+      <h3>What the models write</h3>
+      <div class="sub">Greedy-ish samples (top-k 40, T = 0.8) after 50M tokens</div>
+      <div class="samples" id="samples"></div>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:20px" id="abl-panel">
+    <h3>Was it the rule or the step size?</h3>
+    <div class="sub">Blend weights each block by γ = h, midpoint by γ = 2h. Compare at the same γ (no-kick start).</div>
+    <div class="chart" id="abl"></div>
+    <p class="note" id="abl-note" style="margin-top:12px"></p>
+  </div>
+  <div class="tbl" style="margin-top:20px" id="run-table"></div>
+</div></section>
+
+<section id="maxbatch"><div class="wrap">
+  <div class="head">
+    <div class="eyebrow">Pushing the batch</div>
+    <h2>The largest micro-batch that trains, eight ways</h2>
+    <p class="lede" id="mb-lede">Each probe doubles the batch until a full training step runs out of memory, then bisects. The control, the reversible rule under plain autograd, separates the algorithm from the architecture.</p>
+  </div>
+  <div class="panel">
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:baseline">
+      <h3>Maximum batch (sequences of 1,024 tokens)</h3><button type="button" class="btn" id="race">Replay</button>
+    </div>
+    <div class="chart" id="mb-bars" style="margin-top:10px"></div>
+  </div>
+  <div class="grid2" style="margin-top:20px">
+    <div class="panel">
+      <h3>Where the memory goes</h3>
+      <div class="sub" id="comp-sub">One training step at the fixed batch</div>
+      <div class="chart" id="comp"></div>
+    </div>
+    <div class="panel">
+      <h3>Does a bigger batch buy speed?</h3>
+      <div class="sub">Tokens per second against micro-batch, steady state</div>
+      <div class="legend" id="tp-legend"></div>
+      <div class="chart" id="tp"></div>
+    </div>
+  </div>
+</div></section>
+
+<section id="anatomy"><div class="wrap">
+  <div class="head">
+    <div class="eyebrow">Anatomy</div>
+    <h2>The saving does not grow with depth, and it shows up in time</h2>
+  </div>
+  <div class="panel">
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:baseline">
+      <div><h3>Allocated memory through one training step</h3><div class="sub" id="tl-sub">From the CUDA allocator's own trace</div></div>
+      <button type="button" class="btn" id="tl-play">Play step</button>
+    </div>
+    <div class="chart" id="tl"></div>
+  </div>
+  <div class="grid2" style="margin-top:20px">
+    <div class="panel">
+      <h3>Peak memory against depth</h3>
+      <div class="sub" id="depth-sub">Batch 8 × 1,024 tokens, chunked head</div>
+      <div class="chart" id="depth"></div>
+    </div>
+    <div class="panel">
+      <h3>Longest sequence that trains at batch 1</h3>
+      <div class="sub">FlashAttention, chunked head, one A100-40GB</div>
+      <div class="chart" id="seq"></div>
+      <p class="note" id="slope-note" style="margin-top:14px"></p>
+    </div>
+  </div>
+</div></section>
+
+<section id="drift"><div class="wrap">
+  <div class="head">
+    <div class="eyebrow">Drift</div>
+    <h2>How exact is “exact” in bf16?</h2>
+    <p class="lede">The custom backward matches autograd to 1e-9 in float64. In training the blocks run in bf16, so each rebuilt state carries rounding error, and the recurrence decides whether that error grows on the way down. Measured on the trained models, on held-out text.</p>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h3>Rebuilt-state error by layer</h3><div class="sub">‖ŝ − s‖ / ‖s‖, fp32 residual stream (as trained)</div><div class="legend" id="drift-legend"></div><div class="chart" id="drift-chart"></div></div>
+    <div class="panel"><h3>Gradient agreement by layer</h3><div class="sub">1 − cosine(reversible gradient, autograd gradient)</div><div class="chart" id="cos-chart"></div></div>
+  </div>
+</div></section>
+
+<section id="anchor"><div class="wrap">
+  <div class="head">
+    <div class="eyebrow">A fix</div>
+    <h2>Anchor the bottom two states, and the reversible stack catches up</h2>
+    <p class="lede">The embedding state has a norm near 1 while the states above it reach 30–1,150, so rebuilding it is a subtraction of large numbers that leaves only rounding. Storing s₀ and s₁ next to the top two states costs 3 MiB per sequence and removes the problem. Retrained on the same 50M tokens:</p>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h3>Final validation loss, before → after anchoring</h3><div class="sub">Open: rebuilt to the bottom. Filled: anchored. Dashed: standard.</div><div class="chart" id="dumbbell"></div></div>
+    <div class="panel"><h3>Worst-layer gradient agreement</h3><div class="sub">1 − cosine against autograd, on the trained checkpoints (log scale)</div><div class="chart" id="anc-fid"></div></div>
+  </div>
+  <div class="tbl" style="margin-top:20px" id="seed-table"></div>
+</div></section>
+
+<section id="cost"><div class="wrap">
+  <div class="head">
+    <div class="eyebrow">Cost</div>
+    <h2>What each run cost</h2>
+    <p class="lede">Wall time on a Modal A100-40GB, including evaluation, times the hourly price. Change the price to see your own cloud.</p>
+  </div>
+  <div class="panel">
+    <div class="range"><label for="price">USD per GPU-hour</label><input id="price" type="number" min="0" step="0.05" value="2.10"></div>
+    <div class="chart" id="cost-bars" style="margin-top:12px"></div>
+  </div>
+</div></section>
+
+<section id="figures"><div class="wrap">
+  <div class="head"><div class="eyebrow">From the notebooks</div><h2>Every figure, as the notebooks drew it</h2></div>
+  <div class="gallery" id="gallery"></div>
+</div></section>
+
+<section id="findings"><div class="wrap">
+  <div class="head"><div class="eyebrow">Findings</div><h2>What the measurements say</h2></div>
+  <div class="findings" id="find"></div>
+  <div class="tbl" style="margin-top:32px" id="claims"></div>
+</div></section>
+</main>
+
+<footer><div class="wrap">ERA V5 · Session 13 assignment · model 21.2M non-embedding parameters (40.6M with the tied embedding) · FineWeb-Edu sample-10BT · GPT-2 BPE · PyTorch on a Modal A100-SXM4-40GB. Notebooks, code and raw results: <a href="https://github.com/sourav-dhar/era-v5-s13-reversibility">github.com/sourav-dhar/era-v5-s13-reversibility</a>.</div></footer>
+
+<script src="data.js"></script>
+<script src="findings.js"></script>
+<script src="figures.js"></script>
+<script>
+(function(){
+'use strict';
+const D = window.S13 || {runs:{}, probes:{}};
+const REDRAW = []; window.__hid = 0;
+const R = D.runs, P = D.probes;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs={}, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+const fmt = (v, d=2) => (v==null || !isFinite(v)) ? '—' : Number(v).toLocaleString(undefined, {minimumFractionDigits:d, maximumFractionDigits:d});
+const int = v => (v==null || !isFinite(v)) ? '—' : Math.round(v).toLocaleString();
+const COLORS = {standard:'--std', ckpt:'--ckpt', rev:'--rev', rev_unrolled:'--unr', midpoint:'--rev', blend:'--blend', leapfrog:'--leap'};
+const LABEL = {standard:'standard (stores activations)', ckpt:'activation checkpointing', rev:'reversible (custom backward)', rev_unrolled:'reversible rule, plain autograd'};
+const colorOf = c => css(c.mode && c.mode.startsWith('rev') ? COLORS[c.integrator] || '--rev' : COLORS[c.mode] || '--muted');
+const rlabel = c => {
+  if (c.mode && c.mode.startsWith('rev')) {
+    const core = c.integrator === 'blend' ? `blend a=${c.a}, h=${c.h}` : `${c.integrator} h=${c.h}`;
+    return `${core}, ${c.bootstrap === 'euler' ? 'Euler' : 'no-kick'} start${c.anchor ? ', anchored' : ''}${c.ce_chunk ? ' + chunked head' : ''}`;
+  }
+  return (LABEL[c.mode] || c.mode) + (c.ce_chunk ? ' + chunked head' : '');
+};
+const GRID = /^rev-(midpoint|blend|leapfrog)-(euler|nokick|libdefault)$/;
+const variants = Object.keys(R).filter(k => GRID.test(k)).map(k => R[k]);
+const okVariants = variants.filter(r => !r.diverged && isFinite(r.final_val));
+const winner = (P.winner && R[P.winner.name]) || okVariants.slice().sort((a,b) => a.final_val - b.final_val)[0];
+const ANC = Object.keys(R).filter(k => /^rev-anc-[a-z]+-[a-z]+$/.test(k)).map(k => R[k]);
+const bestAnc = ANC.slice().sort((a,b) => a.final_val - b.final_val)[0];
+const base = R['baseline'];
+const fb = (P.fixed_batch||{}).batch;
+
+/* ---------------------------------------------------------------- chart kit */
+function scale(d0, d1, r0, r1, log){ if (log){ const a=Math.log(d0), b=Math.log(d1); return v => r0 + (Math.log(v)-a)/(b-a)*(r1-r0); } return v => r0 + (v-d0)/(d1-d0)*(r1-r0); }
+function nice(lo, hi, n=5){ const span = hi-lo || 1, step0 = span/n, mag = Math.pow(10, Math.floor(Math.log10(step0))); const err = step0/mag; const step = (err>=7.5?10:err>=3.5?5:err>=1.5?2:1)*mag; const out=[]; for (let v=Math.ceil(lo/step)*step; v<=hi+1e-9; v+=step) out.push(+v.toFixed(10)); return out; }
+function logTicks(lo, hi, base=10){ const out=[]; let v = Math.pow(base, Math.floor(Math.log(lo)/Math.log(base))); while (v <= hi*1.0001){ if (v >= lo*0.9999) out.push(v); v *= base; } return out; }
+
+function lineChart(host, o){
+  host.innerHTML = '';
+  const W = o.w || Math.max(300, Math.round(host.clientWidth || 760)), H = o.h || 300, m = {l:54, r:16, t:12, b:40, ...(o.m||{})};
+  const svg = el('svg', {viewBox:`0 0 ${W} ${H}`, role:'img', 'aria-label':o.aria||''}, host);
+  const series = o.series.filter(s => !s.hidden && s.pts.length);
+  const xs = series.flatMap(s => s.pts.map(p=>p[0])), ys = series.flatMap(s => s.pts.map(p=>p[1]));
+  if (!xs.length) return;
+  let [x0,x1] = o.xDomain || [Math.min(...xs), Math.max(...xs)], [y0,y1] = o.yDomain || [Math.min(...ys), Math.max(...ys)];
+  if (!o.yLog && !o.yDomain){ const pad=(y1-y0)*0.06||0.1; y0-=pad; y1+=pad; }
+  const X = scale(x0,x1,m.l,W-m.r,o.xLog), Y = scale(y0,y1,H-m.b,m.t,o.yLog);
+  const yt = o.yTicks || (o.yLog ? logTicks(y0,y1) : nice(y0,y1,5)); const xt = o.xTicks || (o.xLog ? logTicks(x0,x1,2) : nice(x0,x1,6));
+  yt.forEach(v => { if (v<y0-1e-12||v>y1+1e-12) return; el('line',{x1:m.l,x2:W-m.r,y1:Y(v),y2:Y(v),class:'gl'},svg); const t=el('text',{x:m.l-8,y:Y(v)+4,'text-anchor':'end'},svg); t.textContent=(o.yFmt||(v=>v))(v); });
+  xt.forEach(v => { if (v<x0-1e-12||v>x1+1e-12) return; const t=el('text',{x:X(v),y:H-m.b+18,'text-anchor':'middle'},svg); t.textContent=(o.xFmt||(v=>v))(v); });
+  el('line',{x1:m.l,x2:W-m.r,y1:H-m.b,y2:H-m.b,class:'ax'},svg);
+  if (o.xLabel){ const t=el('text',{x:(m.l+W-m.r)/2,y:H-6,'text-anchor':'middle'},svg); t.textContent=o.xLabel; }
+  if (o.yLabel){ const t=el('text',{x:14,y:(m.t+H-m.b)/2,'text-anchor':'middle',transform:`rotate(-90 14 ${(m.t+H-m.b)/2})`},svg); t.textContent=o.yLabel; }
+  if (o.bands) o.bands.forEach(b => { const r=el('rect',{x:X(b.x0),y:m.t,width:Math.max(0,X(b.x1)-X(b.x0)),height:H-m.b-m.t,fill:css('--rule-2')},svg); svg.insertBefore(r, svg.firstChild); if (b.label){ const t=el('text',{x:(X(b.x0)+X(b.x1))/2,y:m.t+12,'text-anchor':'middle'},svg); t.textContent=b.label; } });
+  const paths = [];
+  series.forEach(s => {
+    const d = s.pts.map((p,i)=>`${i?'L':'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
+    if (s.area){ el('path',{d:d+`L${X(s.pts[s.pts.length-1][0])},${H-m.b}L${X(s.pts[0][0])},${H-m.b}Z`,fill:s.color,'fill-opacity':0.14},svg); }
+    const p = el('path',{d,fill:'none',stroke:s.color,'stroke-width':s.width||2,'stroke-dasharray':s.dash||'', 'stroke-linejoin':'round','stroke-linecap':'round'},svg);
+    paths.push(p);
+    if (o.animate && !s.dash && !matchMedia('(prefers-reduced-motion: reduce)').matches){ const L = p.getTotalLength(); p.style.strokeDasharray = L + ' ' + L; p.style.strokeDashoffset = L; p.getBoundingClientRect(); p.style.transition = 'stroke-dashoffset 1.8s cubic-bezier(.4,0,.2,1)'; requestAnimationFrame(() => { p.style.strokeDashoffset = 0; }); }
+    if (s.markers) s.pts.forEach(pt => el('circle',{cx:X(pt[0]),cy:Y(pt[1]),r:3.2,fill:s.color,stroke:css('--panel'),'stroke-width':1.5},svg));
+  });
+  // hover layer
+  if (o.hover !== false){
+    const tip = document.createElement('div'); tip.className='tip'; host.appendChild(tip);
+    const cross = el('line',{y1:m.t,y2:H-m.b,stroke:css('--muted'),'stroke-dasharray':'3 3',opacity:0},svg);
+    const ov = el('rect',{x:m.l,y:m.t,width:W-m.l-m.r,height:H-m.t-m.b,fill:'transparent'},svg);
+    const move = ev => {
+      const r = svg.getBoundingClientRect(), sx = (ev.clientX - r.left)/r.width*W;
+      let best=null; series.forEach(s => s.pts.forEach(p => { const dx=Math.abs(X(p[0])-sx); if(!best||dx<best.dx) best={dx,x:p[0]}; }));
+      if (!best) return;
+      cross.setAttribute('x1',X(best.x)); cross.setAttribute('x2',X(best.x)); cross.setAttribute('opacity',1);
+      const rows = series.map(s => { let q=null; s.pts.forEach(p=>{ if(!q||Math.abs(p[0]-best.x)<Math.abs(q[0]-best.x)) q=p; }); return q && Math.abs(X(q[0])-X(best.x))<6 ? `<i style="background:${s.color}"></i>${s.name}: <b>${(o.tipY||(v=>fmt(v,3)))(q[1])}</b>` : null; }).filter(Boolean);
+      tip.innerHTML = `<div style="opacity:.7">${(o.tipX||o.xFmt||(v=>v))(best.x)}</div>` + rows.join('<br>');
+      tip.style.left = (X(best.x)/W*r.width) + 'px'; tip.style.top = (m.t/H*r.height + 8) + 'px'; tip.classList.add('on');
+      const tw = tip.offsetWidth, left = X(best.x)/W*r.width; tip.style.transform = `translate(${left - tw/2 < 0 ? -left : (left + tw/2 > r.width ? -(tw - (r.width-left)) : -tw/2)}px, -100%)`;
+    };
+    ov.addEventListener('pointermove', move); ov.addEventListener('pointerleave', () => { tip.classList.remove('on'); cross.setAttribute('opacity',0); });
+  }
+  return {svg, X, Y, paths, m, W, H};
+}
+
+function hbar(host, rows, o={}){
+  host.innerHTML='';
+  const W = o.w || Math.max(300, Math.round(host.clientWidth || 760)), rowH = o.rowH || 30, lw = Math.min(o.labelW || 250, Math.round(W*0.42)), m = {t:6, b:o.xLabel?34:8, r:Math.min(o.rightW || 130, Math.round(W*0.3))};
+  const H = m.t + m.b + rows.length*rowH;
+  const svg = el('svg',{viewBox:`0 0 ${W} ${H}`, role:'img', 'aria-label':o.aria||''}, host);
+  const vmax = o.max || Math.max(...rows.map(r=>r.v||0)), vmin = o.min || (o.log ? Math.min(...rows.map(r=>r.v||Infinity))/1.6 : 0);
+  const X = scale(vmin, vmax, lw, W-m.r, o.log);
+  const tip = document.createElement('div'); tip.className='tip'; host.appendChild(tip);
+  const bars = [];
+  rows.forEach((r,i) => {
+    const y = m.t + i*rowH, h = rowH*0.64;
+    const t = el('text',{x:lw-10,y:y+h/2+4,'text-anchor':'end',style:`fill:${css('--ink-2')};font-size:11.5px`},svg); t.textContent=r.label;
+    const w = r.v ? Math.max(2, X(r.v)-lw) : 0;
+    const b = el('rect',{x:lw,y,width:w,height:h,rx:4,fill:r.color,'fill-opacity':r.alpha||1},svg);
+    if (r.hatch){ const hid = `hatch-${++window.__hid}`; b.setAttribute('fill', `url(#${hid})`); const pat = el('pattern',{id:hid,width:6,height:6,patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'},svg); el('rect',{width:6,height:6,fill:r.color,'fill-opacity':.55},pat); el('line',{x1:0,y1:0,x2:0,y2:6,stroke:r.color,'stroke-width':3},pat); }
+    b.dataset.w = w; bars.push(b);
+    const vt = el('text',{x:lw+w+8,y:y+h/2+4,style:`fill:${css('--ink-2')};font-size:11.5px`},svg); vt.textContent = r.text || fmt(r.v);
+    if (o.textInside !== false && lw+w+8+vt.getComputedTextLength() > W-2 && w > vt.getComputedTextLength()+16){ vt.setAttribute('x', lw+w-8); vt.setAttribute('text-anchor','end'); vt.style.fill='#fff'; }
+    b.addEventListener('pointermove', ev => { const rc=svg.getBoundingClientRect(); tip.innerHTML = r.tip || `${r.label}: <b>${r.text||fmt(r.v)}</b>`; tip.style.left=(ev.clientX-rc.left)+'px'; tip.style.top=(ev.clientY-rc.top)+'px'; tip.style.transform='translate(-50%, calc(-100% - 12px))'; tip.classList.add('on'); });
+    b.addEventListener('pointerleave', () => tip.classList.remove('on'));
+  });
+  if (o.ref){ const x=X(o.ref.v); el('line',{x1:x,x2:x,y1:m.t-2,y2:H-m.b+2,stroke:o.ref.color||css('--muted'),'stroke-dasharray':'4 3'},svg); const t=el('text',{x:x+4,y:H-m.b+(o.xLabel?14:0)},svg); t.textContent=o.ref.label; }
+  if (o.xLabel){ const t=el('text',{x:(lw+W-m.r)/2,y:H-6,'text-anchor':'middle'},svg); t.textContent=o.xLabel; }
+  return {svg, bars, grow(){ bars.forEach((b,i)=>{ b.style.transition='none'; b.setAttribute('width',0); requestAnimationFrame(()=>requestAnimationFrame(()=>{ b.style.transition=`width .9s cubic-bezier(.2,.8,.2,1) ${i*70}ms`; b.setAttribute('width', b.dataset.w); })); }); }};
+}
+
+function legend(host, items, onToggle){
+  host.innerHTML='';
+  items.forEach(it => { const b=document.createElement('button'); b.type='button'; b.setAttribute('aria-pressed', it.hidden?'false':'true'); b.innerHTML=`<i style="background:${it.color}${it.dash?';background:repeating-linear-gradient(90deg,'+it.color+' 0 4px,transparent 4px 7px)':''}"></i>${it.name}`;
+    if (onToggle) b.addEventListener('click', () => { it.hidden=!it.hidden; b.setAttribute('aria-pressed', it.hidden?'false':'true'); onToggle(); }); else b.style.cursor='default';
+    host.appendChild(b); });
+}
+
+/* ---------------------------------------------------------------- hero: the stack */
+(function stack(){
+  const host = $('stack'), cap = $('stack-cap');
+  const L = 12, W = 560, H = 360, x0 = 150, bw = 230, gap = 4, top = 20, lh = (H - top - 40 - gap*(L)) / (L+1);
+  const svg = el('svg',{viewBox:`0 0 ${W} ${H}`, role:'img','aria-label':'Animated twelve-layer stack: forward pass, then backward pass, with stored activations or reversible reconstruction'}, host);
+  let mode = 'rev', playing = true, t = 0, last = performance.now();
+  const yOf = k => H - 40 - (k+1)*(lh+gap);   // state k sits above layer k-1
+  const slabs=[], chips=[], lbl=[];
+  for (let k=0;k<=L;k++){
+    const y = yOf(k);
+    const s = el('rect',{x:x0,y,width:bw,height:lh,rx:5,fill:css('--rule-2'),stroke:css('--rule')},svg); slabs.push(s);
+    const tx = el('text',{x:x0-12,y:y+lh/2+4,'text-anchor':'end',style:`font:500 11px var(--f-mono);fill:${css('--muted')}`},svg); tx.textContent = `s${k}`; lbl.push(tx);
+    const c = el('rect',{x:x0+bw+14,y:y+2,width:0,height:lh-4,rx:3,fill:css('--std')},svg); chips.push(c);
+  }
+  el('text',{x:x0+bw/2,y:H-12,'text-anchor':'middle',style:`font:500 11px var(--f-mono);fill:${css('--muted')}`},svg).textContent='tokens → embedding';
+  const memLbl = el('text',{x:x0+bw+14,y:14,style:`font:500 11px var(--f-mono);fill:${css('--muted')}`},svg); memLbl.textContent='kept for backward';
+  const pulse = el('rect',{x:x0-3,y:0,width:bw+6,height:lh+6,rx:7,fill:'none',stroke:css('--rev'),'stroke-width':2.5},svg);
+  const arrow = el('path',{d:'',fill:'none',stroke:css('--rev'),'stroke-width':2,'stroke-dasharray':'4 3',opacity:0},svg);
+  const eq = el('text',{x:x0+bw/2,y:0,'text-anchor':'middle',style:`font:500 10.5px var(--f-mono);fill:${css('--rev')}`,opacity:0},svg);
+  const FWD = 4.2, PAUSE = .9, BWD = 4.8, T = FWD + PAUSE + BWD + PAUSE;
+  function paint(){
+    const std = mode === 'std', ph = t % T;
+    const colStd = css('--std'), colRev = css('--rev');
+    let active = -1, kept = new Set(), phase = '';
+    if (ph < FWD){ active = Math.min(L, Math.floor(ph/FWD*(L+1))); phase='fwd';
+      for (let k=0;k<=active;k++) kept.add(k);
+      if (!std) { kept.clear(); kept.add(active); if (active>0) kept.add(active-1); }
+    } else if (ph < FWD+PAUSE){ active = L; phase='loss'; for (let k=0;k<=L;k++) kept.add(k); if (!std){ kept.clear(); kept.add(L); kept.add(L-1); } }
+    else if (ph < FWD+PAUSE+BWD){ const f=(ph-FWD-PAUSE)/BWD; active = Math.max(0, L - Math.floor(f*(L+1))); phase='bwd';
+      for (let k=0;k<=active;k++) kept.add(k);
+      if (!std){ kept.clear(); kept.add(active); if (active+1<=L) kept.add(active+1); if (active>0) kept.add(active-1); }
+    } else { phase='done'; }
+    slabs.forEach((s,k) => { s.setAttribute('fill', k===active && phase!=='done' ? (std?colStd:colRev) : css('--rule-2')); s.setAttribute('fill-opacity', k===active?0.22:1); });
+    chips.forEach((c,k) => { const on = kept.has(k); c.setAttribute('width', on ? (std? 70 : 70) : 0); c.setAttribute('fill', std ? colStd : colRev); c.setAttribute('opacity', on?1:0); });
+    if (phase==='done'){ pulse.setAttribute('opacity',0); } else { pulse.setAttribute('opacity',1); pulse.setAttribute('y', yOf(active)-3); pulse.setAttribute('stroke', std?colStd:colRev); }
+    const showArrow = !std && phase==='bwd' && active>0 && active+1<=L;
+    arrow.setAttribute('opacity', showArrow?1:0); eq.setAttribute('opacity', showArrow?1:0);
+    if (showArrow){ const ya=yOf(active+1)+lh/2, yb=yOf(active-1)+lh/2, xa=x0-34; arrow.setAttribute('d',`M${x0},${ya} C${xa-30},${ya} ${xa-30},${yb} ${x0},${yb}`); eq.setAttribute('x', 66); eq.setAttribute('y', yOf(active)+lh/2+4); eq.setAttribute('text-anchor','middle'); eq.textContent='rebuild'; }
+    const n = kept.size;
+    cap.textContent = phase==='fwd' ? (std ? `Forward: every state is kept for the backward pass (${n} of ${L+1} so far).` : `Forward: only the two newest states exist. Older ones are dropped as soon as the next is computed.`)
+      : phase==='loss' ? (std ? `Loss computed. All ${L+1} states are in memory.` : 'Loss computed. Only s₁₁ and s₁₂ are in memory.')
+      : phase==='bwd' ? (std ? 'Backward: the stored states are consumed from the top down.' : `Backward: s${Math.max(active-1,0)} is rebuilt from s${active} and s${Math.min(active+1,L)}, then used and dropped.`)
+      : (std ? `Memory held at the peak: ${L+1} states.` : 'Memory held at the peak: 2 states, plus one layer of working memory.');
+  }
+  function frame(now){ if (playing){ t += Math.min(0.05,(now-last)/1000); } last = now; paint(); requestAnimationFrame(frame); }
+  const setMode = m => { mode = m; t = 0; $('m-std').setAttribute('aria-pressed', m==='std'); $('m-rev').setAttribute('aria-pressed', m==='rev'); };
+  $('m-std').onclick = () => setMode('std'); $('m-rev').onclick = () => setMode('rev');
+  $('play').onclick = () => { playing = !playing; $('play').textContent = playing ? 'Pause' : 'Play'; };
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches){ playing=false; $('play').textContent='Play'; t = FWD + PAUSE*0.5; }
+  paint(); requestAnimationFrame(frame);
+})();
+
+/* ---------------------------------------------------------------- backward algorithm strip */
+(function algo(){
+  const st = [...document.querySelectorAll('#algo .st')]; let i = 0;
+  const go = () => { st.forEach((e, j) => e.classList.toggle('on', j === i)); i = (i + 1) % st.length; };
+  go(); if (!matchMedia('(prefers-reduced-motion: reduce)').matches) setInterval(go, 1500);
+})();
+
+/* ---------------------------------------------------------------- per-sequence ledger */
+(function ledger(){
+  const T = 1024, d = 384, L = 12, V = 50304;
+  const layer = 34 * d * T / 2 ** 20, logits = T * V * (2 + 4) / 2 ** 20, boundary = 2 * T * d * 4 / 2 ** 20;
+  const std = L * layer + logits;
+  const C = {
+    std:  [['stack activations', L * layer, '--std', 1], ['LM-head logits', logits, '--bad', .6]],
+    rev:  [['stack activations', boundary + layer, '--rev', 1], ['LM-head logits', logits, '--bad', .6]],
+    revc: [['stack activations', boundary + layer, '--rev', 1], ['LM-head logits', 0, '--bad', .6]],
+  };
+  const host = $('led');
+  function draw(k){
+    let tot = 0;
+    host.innerHTML = C[k].map(([lab, v, c, o]) => { tot += v;
+      return `<div class="lrow"><span class="lab">${lab}</span><div class="ltrack"><span style="width:0;background:var(${c});opacity:${o}" data-w="${(v / std * 100).toFixed(2)}"></span></div><span class="val">${k === 'revc' && lab.startsWith('LM') ? 'fixed' : fmt(v, 1) + ' MiB'}</span></div>`; }).join('');
+    requestAnimationFrame(() => requestAnimationFrame(() => host.querySelectorAll('.ltrack span').forEach(e => e.style.width = e.dataset.w + '%')));
+    $('led-total').textContent = k === 'revc' ? `${fmt(tot, 1)} MiB per sequence, plus one fixed 4,096-token logit chunk` : `${fmt(tot, 0)} MiB per sequence · ${fmt(std / tot, 1)}× less than standard`;
+    document.querySelectorAll('[data-led]').forEach(b => b.setAttribute('aria-pressed', b.dataset.led === k));
+  }
+  let auto = null; const order = ['std', 'rev', 'revc']; let k = 0;
+  document.querySelectorAll('[data-led]').forEach(b => b.onclick = () => { clearInterval(auto); draw(b.dataset.led); });
+  draw('std');
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) auto = setInterval(() => { k = (k + 1) % 3; draw(order[k]); }, 3400);
+})();
+
+/* ---------------------------------------------------------------- KPIs */
+(function kpis(){
+  const mb = k => (P[k]||{}).max_batch;
+  const sMax = mb('maxbatch_standard_ce0'), rMax = mb('maxbatch_rev_ce0'), rcMax = mb('maxbatch_rev_ce4096');
+  const w = winner;
+  const a = bestAnc;
+  const tiles = [
+    [rcMax && sMax ? `×${fmt(rcMax/sMax,1)}` : '—', `largest micro-batch: reversible + chunked head trains ${int(rcMax)} sequences, standard ${int(sMax)}`],
+    [w && base ? `−${fmt((1 - w.peak_gib/base.peak_gib)*100,0)}<small>%</small>` : '—', `peak memory at the same batch of 32 (${fmt(w&&w.peak_gib,2)} vs ${fmt(base&&base.peak_gib,2)} GiB)`],
+    [w && base ? `${fmt(w.tok_per_s/base.tok_per_s,2)}<small>×</small>` : '—', `speed of the reversible winner vs standard. The lesson expected 0.67–0.77×`],
+    [a && base ? `${a.final_val - base.final_val >= 0 ? '+' : '−'}${fmt(Math.abs(a.final_val - base.final_val),3)}` : '—', `validation loss of ${a ? rlabel(a.cfg) : 'the anchored stack'} vs standard (${fmt(base&&base.final_val,3)})`],
+  ];
+  $('kpis').innerHTML = tiles.map(([v,l]) => `<div class="kpi"><div class="v num">${v}</div><div class="l">${l}</div></div>`).join('');
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.querySelectorAll('.kpi .v').forEach(n => {
+    const m = n.innerHTML.match(/^([^0-9]*)([0-9][0-9,]*[.]?[0-9]*)([^]*)$/); if (!m) return;
+    const target = parseFloat(m[2].replace(/,/g, '')), dec = (m[2].split('.')[1] || '').length, t0 = performance.now();
+    const tick = now => { const f = Math.min(1, (now - t0) / 1100), e = 1 - Math.pow(1 - f, 3); n.innerHTML = m[1] + (target * e).toFixed(dec) + m[3]; if (f < 1) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick); });
+})();
+
+/* ---------------------------------------------------------------- roots on the unit circle */
+(function roots(){
+  const host = $('roots'), sl = $('alpha'), out = $('alpha-v'), capEl = $('roots-cap');
+  function draw(){
+    const a = +sl.value; out.textContent = a.toFixed(2);
+    host.innerHTML=''; const W=520, H=230, cx=120, cy=115, R=82;
+    const svg = el('svg',{viewBox:`0 0 ${W} ${H}`, role:'img','aria-label':'Characteristic roots on the unit circle'},host);
+    el('line',{x1:cx-R-20,x2:cx+R+20,y1:cy,y2:cy,class:'ax'},svg); el('line',{x1:cx,x2:cx,y1:cy-R-14,y2:cy+R+14,class:'ax'},svg);
+    el('circle',{cx,cy,r:R,fill:'none',stroke:css('--muted'),'stroke-dasharray':'3 3'},svg);
+    // blend roots: z^2 - (1-a) z - a = 0 -> z = 1, z = -a
+    const rts = [1, -a];
+    rts.forEach((z,i) => { el('circle',{cx:cx+z*R,cy,r:7,fill:i?css('--blend'):css('--rev'),stroke:css('--panel'),'stroke-width':2},svg); const t=el('text',{x:cx+z*R,y:cy-14,'text-anchor':'middle'},svg); t.textContent=`z=${z.toFixed(2)}`; });
+    // inverse roots for backward
+    const zi = -1/a; const xi = Math.max(cx-R*2.4, cx+zi*R*0.999);
+    el('circle',{cx:cx+Math.max(-1.35, zi)*R,cy:cy+40,r:5,fill:'none',stroke:css('--bad'),'stroke-width':2},svg);
+    const t2=el('text',{x:cx+Math.max(-1.35,zi)*R,y:cy+60,'text-anchor':'middle',style:`fill:${css('--bad')}`},svg); t2.textContent=`1/z = ${zi.toFixed(2)}`;
+    // growth bars over 11 layers
+    const g = Math.pow(1/a, 11), gx0=270, gw=230;
+    const t3 = el('text',{x:gx0,y:40},svg); t3.textContent='error after rebuilding 11 layers';
+    const lg = v => Math.log10(Math.max(1,v))/4;
+    el('rect',{x:gx0,y:52,width:gw,height:16,rx:4,fill:css('--rule-2')},svg);
+    el('rect',{x:gx0,y:52,width:Math.max(3,Math.min(1,lg(g))*gw),height:16,rx:4,fill:a>0.98?css('--rev'):css('--blend')},svg);
+    const t4=el('text',{x:gx0,y:92,style:`fill:${css('--ink')};font:700 24px var(--f-display)`},svg); t4.textContent=`×${g<1e4?fmt(g, g<10?2:0):g.toExponential(1)}`;
+    const t5=el('text',{x:gx0,y:112},svg); t5.textContent='(log scale, full bar = ×10,000)';
+    capEl.innerHTML = a>=0.995 ? 'At a = 1 the rule is the midpoint rule. Both roots lie on the unit circle, so rebuilding neither grows nor shrinks errors.' :
+      `The forward rule is damped (the root at ${(-a).toFixed(2)} is inside the circle), which is why it trains smoothly. The backward rebuild uses 1/z = ${zi.toFixed(2)}, which is outside the circle, so rounding error grows ×${(1/a).toFixed(2)} per layer.`;
+  }
+  sl.addEventListener('input', draw); draw();
+})();
+
+/* ---------------------------------------------------------------- the three runs */
+REDRAW.push(function runs(){
+  const cards = [];
+  const best = (prefix) => Object.values(R).filter(r => r.cfg.name.startsWith(prefix) && !r.diverged).sort((a,b)=>a.final_val-b.final_val)[0];
+  const maxRun = best('rev-chunk-max') && best('rev-max') ? [best('rev-max'), best('rev-chunk-max')].sort((a,b)=>b.cfg.batch-a.cfg.batch)[0] : best('rev-max');
+  const trio = [['Run 1 · baseline', 'Standard, fixed batch', base], ['Run 2 · reversible', winner ? rlabel(winner.cfg) : 'reversible', winner], ['Run 3 · reversible at max batch', maxRun ? `batch ${maxRun.cfg.batch}, ${maxRun.cfg.ce_chunk ? 'chunked head' : 'full logits'}` : '', maxRun]];
+  $('run-cards').innerHTML = trio.map(([tag, title, r]) => r ? `<div class="panel run-card"><div class="tag">${tag}</div><h3><span class="swatch" style="background:${colorOf(r.cfg)}"></span>${title}</h3>
+    <dl class="stats"><dt>final validation loss</dt><dd>${fmt(r.final_val,4)}</dd><dt>final train loss</dt><dd>${fmt(r.final_train,4)}</dd><dt>tokens / second</dt><dd>${int(r.tok_per_s)}</dd>
+    <dt>peak memory</dt><dd>${fmt(r.peak_gib,2)} GiB</dd><dt>batch · steps</dt><dd>${r.cfg.batch} · ${int(r.steps)}</dd><dt>wall time · cost</dt><dd>${int(r.wall_s)} s · $${fmt(r.cost_usd,2)}</dd></dl></div>` : '').join('');
+
+  // loss chart
+  const order = ['baseline','ckpt', ...variants.map(v=>v.cfg.name), ...ANC.map(r=>r.cfg.name), ...Object.keys(R).filter(k=>k.includes('max'))];
+  const seen = new Set(); const list = order.map(k => R[k] || Object.values(R).find(r=>r.cfg.name===k)).filter(r => r && !seen.has(r.cfg.name) && seen.add(r.cfg.name));
+  const S = list.map(r => ({ name: r.cfg.name.includes('max') ? `${r.cfg.name} (B=${r.cfg.batch})` : rlabel(r.cfg), color: colorOf(r.cfg),
+    dash: r.cfg.bootstrap==='none' && r.cfg.mode==='rev' ? '6 4' : (r.cfg.name.includes('max') ? (r.cfg.name.includes('sqrt')? '2 3':'8 3') : ''),
+    pts: r.evals.tokens.map((t,i)=>[t/1e6, r.evals.val[i]]).filter(p=>isFinite(p[1])), markers:true,
+    hidden: !(r === base || r === winner || ['rev-blend-euler','rev-leapfrog-euler','rev-anc-blend-euler','rev-anc-leapfrog-euler'].includes(r.cfg.name)) }));
+  const draw = () => { const ys = S.filter(s=>!s.hidden).flatMap(s=>s.pts.map(p=>p[1])); const lo = Math.min(...ys), hi = Math.min(Math.max(...ys), (base?base.evals.val[0]:8)+0.3);
+    const first = !window.__lossDrawn; window.__lossDrawn = true;
+    lineChart($('loss-chart'), {series:S, h:340, animate:first, yDomain:[lo-0.05, hi], xLabel:'tokens seen (millions)', yLabel:'validation loss', xFmt:v=>`${v}M`, tipX:v=>`${fmt(v,1)}M tokens`}); };
+  legend($('loss-legend'), S, draw); draw();
+
+  // variant bars
+  const vs = okVariants.slice().sort((a,b)=>a.final_val-b.final_val);
+  const rows = vs.map(r => ({label: rlabel(r.cfg), v: r.final_val, color: colorOf(r.cfg), hatch: r.cfg.bootstrap==='none', text: `${fmt(r.final_val,3)}  (${r.final_val-base.final_val>=0?'+':''}${fmt(r.final_val-base.final_val,3)})`}));
+  variants.filter(r=>r.diverged || !isFinite(r.final_val)).forEach(r => rows.push({label: rlabel(r.cfg), v: null, color: css('--bad'), text:'diverged'}));
+  if (base) rows.push({label:'standard', v:base.final_val, color:css('--std'), text: fmt(base.final_val,3)});
+  const lo = Math.min(...rows.filter(r=>r.v).map(r=>r.v)) - 0.08, hi = Math.max(...rows.filter(r=>r.v).map(r=>r.v)) + 0.02;
+  hbar($('variant-bars'), rows, {min:lo, max:hi, labelW:280, rowH:28, ref: base ? {v:base.final_val, label:'standard', color:css('--std')} : null, aria:'Final validation loss per variant'});
+
+  // samples
+  $('samples').innerHTML = [base, winner].filter(Boolean).map(r => (r.samples||[]).slice(0,2).map(s => `<div class="sample"><b>${r===base?'standard':'reversible'} ·</b> ${s.replace(/</g,'&lt;')}</div>`).join('')).join('');
+
+  // table
+  const all = Object.values(R).filter(r => !/-s1$/.test(r.cfg.name)).sort((a,b) => (a.cfg.name.includes('max')) - (b.cfg.name.includes('max')) || a.final_val - b.final_val);
+  const cols = [['run', r=>r.cfg.name], ['what', r=>rlabel(r.cfg)], ['batch', r=>r.cfg.batch], ['steps', r=>r.steps], ['lr', r=>r.cfg.lr.toExponential(1)], ['val loss', r=>fmt(r.final_val,4)], ['Δ vs base', r=>(r.final_val-base.final_val>=0?'+':'')+fmt(r.final_val-base.final_val,4)], ['tokens/s', r=>int(r.tok_per_s)], ['peak GiB', r=>fmt(r.peak_gib,2)], ['wall s', r=>int(r.wall_s)]];
+  $('run-table').innerHTML = `<table><thead><tr>${cols.map(c=>`<th>${c[0]}</th>`).join('')}</tr></thead><tbody>${all.map(r=>`<tr class="${r===winner?'win':''}">${cols.map(c=>`<td>${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+});
+
+/* ---------------------------------------------------------------- step-size ablation */
+REDRAW.push(function ablation(){
+  const g = c => c.integrator === 'midpoint' ? 2 * c.h : (c.integrator === 'blend' ? c.h : c.h * c.h);
+  const pts = Object.values(R).filter(r => r.cfg.mode === 'rev' && !r.cfg.name.includes('max') && !r.cfg.anchor && !/-s1$/.test(r.cfg.name) && r.cfg.bootstrap === 'none' && !r.diverged && (r.cfg.integrator === 'midpoint' || (r.cfg.integrator === 'blend' && r.cfg.a === 0.5)));
+  if (pts.length < 3){ $('abl-panel').hidden = true; return; }
+  const S = ['midpoint', 'blend'].map(i => ({name: i, color: css(COLORS[i]), markers: true, pts: pts.filter(r => r.cfg.integrator === i).map(r => [g(r.cfg), r.final_val]).sort((a, b) => a[0] - b[0])}));
+  const gs = pts.map(r => g(r.cfg));
+  if (base) S.push({name: 'standard', color: css('--std'), dash: '5 4', pts: [[Math.min(...gs), base.final_val], [Math.max(...gs), base.final_val]]});
+  lineChart($('abl'), {series: S, h: 260, xLog: true, xLabel: 'γ, the weight on each block (log scale)', yLabel: 'final val loss', xFmt: v => v, tipX: v => `γ = ${v}`});
+  const b1 = pts.find(r => r.cfg.integrator === 'blend' && g(r.cfg) === 1), m1 = pts.find(r => r.cfg.integrator === 'midpoint' && g(r.cfg) === 1), b25 = pts.find(r => r.cfg.integrator === 'blend' && g(r.cfg) === 0.25);
+  if (b1 && m1 && b25) $('abl-note').innerHTML = `At the same weight γ = 1, blend reaches <b>${fmt(b1.final_val, 3)}</b> and midpoint <b>${fmt(m1.final_val, 3)}</b>. Raising blend's step from h = 0.25 to h = 1 made it <b>${fmt(b1.final_val - b25.final_val, 3)} worse</b>, so blend's gap is not a step-size effect. The anchoring section shows what it is.`;
+});
+
+/* ---------------------------------------------------------------- gallery */
+(function gallery(){
+  const G = window.S13_FIGURES || [];
+  $('gallery').innerHTML = G.map(([f, cap]) => `<a href="figures/${f}.png" target="_blank" rel="noopener"><img src="figures/${f}.png" alt="${cap}" loading="lazy"><span>${cap}</span></a>`).join('');
+  if (!G.length) $('figures').hidden = true;
+})();
+
+/* ---------------------------------------------------------------- max batch */
+REDRAW.push(function maxbatch(){
+  const modes = ['standard','ckpt','rev_unrolled','rev'];
+  const rows = []; const sMax = (P.maxbatch_standard_ce0||{}).max_batch;
+  modes.forEach(m => [0,4096].forEach(ce => { const r = P[`maxbatch_${m}_ce${ce}`]; if (!r) return;
+    rows.push({label: LABEL[m] + (ce?' + chunked head':''), v: r.max_batch, color: css(COLORS[m]), hatch: !!ce,
+      text: `${int(r.max_batch)}${r.capped?'+':''}  (×${fmt(r.max_batch/sMax,1)})`, tip: `${LABEL[m]}${ce?' + chunked head':''}<br><b>${int(r.max_batch)} sequences</b> = ${int(r.max_batch*1024)} tokens per step<br>peak ${fmt(r.peak/2**30,1)} GiB`}); }));
+  if (!rows.length) return;
+  const ch = hbar($('mb-bars'), rows, {log:true, labelW:300, rowH:32, aria:'Maximum batch per configuration'});
+  $('race').onclick = () => ch.grow();
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting){ ch.grow(); io.disconnect(); } }), {threshold:.4}); io.observe($('mb-bars'));
+
+  // composition
+  const C = P.composition; if (C){
+    const npar = 40560000, state = npar*16/2**30;
+    $('comp-sub').textContent = `One training step at the fixed batch of ${fb} sequences`;
+    const host = $('comp'); host.innerHTML=''; const W=Math.max(360, host.clientWidth||560), rowH=46, lw=170, H=modes.length*rowH+44;
+    const svg = el('svg',{viewBox:`0 0 ${W} ${H}`, role:'img','aria-label':'Memory composition per mode'},host);
+    const tot = modes.map(m => C[`${m}_ce0`]/2**30); const vmax = Math.max(...tot)*1.05; const X = v => lw + v/vmax*(W-lw-60);
+    modes.forEach((m,i) => { const full=C[`${m}_ce0`]/2**30, chunk=C[`${m}_ce4096`]/2**30; const parts=[[state,css('--muted'),'training state'],[Math.max(0,chunk-state),css(COLORS[m]),'stack + rest'],[Math.max(0,full-chunk),css('--bad'),'LM-head logits']];
+      const y=8+i*rowH; const t=el('text',{x:lw-10,y:y+17,'text-anchor':'end',style:`fill:${css('--ink-2')};font-size:11.5px`},svg); t.textContent=LABEL[m];
+      let x=lw; parts.forEach(([v,c,n]) => { const w = X(v)-lw; if (w<=0) return; el('rect',{x:x+1,y,width:Math.max(0,w-2),height:26,rx:3,fill:c,'fill-opacity':n==='LM-head logits'?.55:1},svg); if (w>34){ const tt=el('text',{x:x+w/2,y:y+17,'text-anchor':'middle',style:'fill:#fff;font-size:10.5px;font-weight:600'},svg); tt.textContent=fmt(v,1);} x+=w; });
+      const tt=el('text',{x:x+6,y:y+17,style:`fill:${css('--ink-2')};font-size:11px`},svg); tt.textContent=`${fmt(full,1)} GiB`; });
+    const ly = H-14, sp = Math.max(120, (W-lw)/3); [['training state',css('--muted')],['residual stack + rest',css('--rev')],['LM-head logits',css('--bad')]].forEach(([n,c],i)=>{ el('rect',{x:lw-150+i*sp,y:ly-9,width:10,height:10,rx:2,fill:c,'fill-opacity':i===2?.55:1},svg); const t=el('text',{x:lw-150+i*sp+15,y:ly},svg); t.textContent=n; });
+  }
+
+  // throughput
+  const T = P.throughput; if (T){
+    const keys = [['standard_ce0','standard',''],['standard_ce4096','standard','6 4'],['ckpt_ce4096','ckpt','6 4'],['rev_ce0','rev',''],['rev_ce4096','rev','6 4']];
+    const S = keys.filter(k=>T[k[0]]).map(([k,m,dash]) => ({name: LABEL[m] + (k.endsWith('4096')?' + chunked':''), color: css(COLORS[m]), dash, markers:true, pts: T[k].filter(p=>!p.oom).map(p=>[p.batch, p.tok_per_s/1e3])}));
+    const draw = () => lineChart($('tp'), {series:S, h:300, xLog:true, xLabel:'micro-batch (sequences)', yLabel:'thousand tokens / s', xFmt:v=>v, yFmt:v=>v, tipY:v=>`${fmt(v,0)}k tok/s`, tipX:v=>`batch ${v}`});
+    legend($('tp-legend'), S, draw); draw();
+  }
+});
+
+/* ---------------------------------------------------------------- anatomy */
+REDRAW.push(function anatomy(){
+  const modes = [['standard','--std'],['ckpt','--ckpt'],['rev','--rev']];
+  const TL = modes.map(([m,c]) => [m, c, P[`timeline_${m}`]]).filter(x=>x[2]);
+  if (TL.length){
+    $('tl-sub').textContent = `From the CUDA allocator's own trace: x runs over allocation events, not seconds. Batch ${fb} × 1,024 tokens, steady-state step, full-logit head. Same vertical scale in every row.`;
+    const host = $('tl'); host.innerHTML=''; const W=Math.max(360, host.clientWidth||1000), rowH=120, H=TL.length*rowH+30, lw=10;
+    const svg = el('svg',{viewBox:`0 0 ${W} ${H}`, role:'img','aria-label':'Memory over one training step for each mode'},host);
+    const ymax = Math.max(...TL.map(x=>x[2].peak))*1.08;
+    const heads = [];
+    TL.forEach(([m,c,tl],i) => { const y0=i*rowH+16, h=rowH-28, n=tl.bytes.length; const X=j=>lw+j/(n-1)*(W-lw-10), Y=v=>y0+h-v/ymax*h;
+      Object.entries(tl.phases).forEach(([nm,j],q,arr)=>{ if(q===arr.length-1) return; const j1=arr[q+1][1]; if (nm==='backward') el('rect',{x:X(j),y:y0,width:Math.max(0,X(j1)-X(j)),height:h,fill:css('--rule-2')},svg); const t=el('text',{x:Math.min(W-40,(X(j)+X(j1))/2),y:y0+11,'text-anchor':'middle'},svg); t.textContent=nm; });
+      const d = tl.bytes.map((v,j)=>`${j?'L':'M'}${X(j).toFixed(1)},${Y(v).toFixed(1)}`).join('');
+      const clip = el('clipPath',{id:`clip${i}`},svg); const cr = el('rect',{x:0,y:0,width:W,height:H},clip);
+      el('path',{d:d+`L${X(n-1)},${y0+h}L${X(0)},${y0+h}Z`,fill:css(c),'fill-opacity':.16,'clip-path':`url(#clip${i})`},svg);
+      el('path',{d,fill:'none',stroke:css(c),'stroke-width':1.8,'clip-path':`url(#clip${i})`},svg);
+      el('line',{x1:lw,x2:W-10,y1:y0+h,y2:y0+h,class:'ax'},svg);
+      const t=el('text',{x:lw+4,y:y0+28,style:`fill:${css('--ink')};font-size:12px;font-weight:600;paint-order:stroke;stroke:${css('--panel')};stroke-width:4px`},svg); t.textContent=`${LABEL[m]} · peak ${fmt(tl.peak,1)} GiB`;
+      heads.push([cr, X]); });
+    $('tl-play').onclick = () => { const t0=performance.now(), dur=3200; const step = now => { const f=Math.min(1,(now-t0)/dur); heads.forEach(([cr])=>cr.setAttribute('width', lw + f*(W-lw))); if (f<1) requestAnimationFrame(step); }; heads.forEach(([cr])=>cr.setAttribute('width',0)); requestAnimationFrame(step); };
+  }
+  // depth
+  const S = modes.map(([m,c]) => ({name: LABEL[m], color: css(c), markers:true, pts: (P[`depth_${m}`]||[]).filter(p=>p.peak).map(p=>[p.n_layer, p.peak/2**30])})).filter(s=>s.pts.length);
+  if (S.length) lineChart($('depth'), {series:S, h:280, xLabel:'layers', yLabel:'peak memory (GiB)', tipX:v=>`${v} layers`, tipY:v=>`${fmt(v,2)} GiB`});
+  // max seq
+  const rows = modes.map(([m,c]) => { const r=P[`maxseq_${m}`]; return r ? {label: LABEL[m], v:r.max_seq, color:css(c), text:`${int(r.max_seq)}${r.capped?'+':''} tokens`} : null; }).filter(Boolean);
+  if (rows.length) hbar($('seq'), rows, {log:true, labelW:240, rowH:34, aria:'Longest trainable sequence'});
+  const sl = P.depth_slopes, dd = m => { const d = (P['depth_'+m]||[]).filter(p=>p.peak); return d.length > 1 ? (d[d.length-1].peak - d[0].peak)/(d[d.length-1].n_layer - d[0].n_layer)/2**20 : null; };
+  if (sl) $('slope-note').innerHTML = `Each added layer costs <b>${fmt(dd('standard'),0)} MiB</b> with stored activations, ${fmt(dd('ckpt'),0)} MiB with checkpointing and <b>${fmt(dd('rev'),0)} MiB</b> reversible, which is less than the 27 MiB of weights, gradients and Adam state the layer itself brings. Per token per hidden unit, stored activations cost <b>${fmt(sl.standard/(8*1024*384),1)} bytes</b> per layer. The lesson's estimate (Korthikanti et al., with FlashAttention) is <b>34</b>.`;
+});
+
+/* ---------------------------------------------------------------- drift */
+REDRAW.push(function drift(){
+  const V = Object.keys(P).filter(k=>k.startsWith('drift_') && !k.startsWith('drift_anchor_')).map(k => [k.slice(6), P[k]]);
+  if (!V.length) return;
+  const meta = name => { const r = R[`rev-${name}`]; return r ? r.cfg : {integrator: name.split('-')[0], bootstrap: name.includes('nokick')?'none':'euler'}; };
+  const S = V.map(([n,d]) => { const c = meta(n); return {name:n, color: css(COLORS[c.integrator]||'--rev'), dash: c.bootstrap==='none'?'6 4':'', markers:true, pts: d.fp32_state.rel_err.map((v,i)=>[i, Math.max(v,1e-9)])}; });
+  const draw = () => lineChart($('drift-chart'), {series:S, h:300, yLog:true, xLabel:'state index (0 = embedding, rebuilt last)', yLabel:'relative error', yFmt:v=>v.toExponential(0), tipY:v=>v.toExponential(2), tipX:v=>`state s${v}`});
+  legend($('drift-legend'), S, () => { draw(); draw2(); }); draw();
+  const S2 = V.map(([n,d],i) => ({...S[i], get hidden(){ return S[i].hidden; }, pts: d.grad.filter(r=>r.layer>=0).map(r=>[r.layer, Math.max(1-r.cos, 1e-10)])}));
+  const draw2 = () => lineChart($('cos-chart'), {series:S2, h:300, yLog:true, xLabel:'layer', yLabel:'1 − cosine', yFmt:v=>v.toExponential(0), tipY:v=>v.toExponential(2), tipX:v=>`layer ${v}`});
+  draw2();
+});
+
+/* ---------------------------------------------------------------- anchoring */
+REDRAW.push(function anchoring(){
+  const pairs = [['rev-midpoint-nokick','rev-anc-midpoint-nokick','midpoint'],['rev-blend-euler','rev-anc-blend-euler','blend'],['rev-leapfrog-euler','rev-anc-leapfrog-euler','leapfrog']].filter(p => R[p[0]] && R[p[1]]);
+  if (!pairs.length){ $('anchor').hidden = true; return; }
+  const host = $('dumbbell'); host.innerHTML = '';
+  const W = Math.max(320, host.clientWidth || 520), rowH = 64, lw = Math.min(150, W*0.3), H = pairs.length*rowH + 40;
+  const svg = el('svg', {viewBox:`0 0 ${W} ${H}`, role:'img', 'aria-label':'Loss before and after anchoring'}, host);
+  const vals = pairs.flatMap(p => [R[p[0]].final_val, R[p[1]].final_val]).concat(base ? [base.final_val] : []);
+  const lo = Math.min(...vals) - 0.04, hi = Math.max(...vals) + 0.04, X = scale(lo, hi, lw, W - 30);
+  nice(lo, hi, 5).forEach(v => { el('line', {x1:X(v), x2:X(v), y1:10, y2:H-28, class:'gl'}, svg); const t = el('text', {x:X(v), y:H-10, 'text-anchor':'middle'}, svg); t.textContent = fmt(v, 2); });
+  if (base){ const x = X(base.final_val); el('line', {x1:x, x2:x, y1:6, y2:H-28, stroke:css('--std'), 'stroke-dasharray':'5 4', 'stroke-width':1.5}, svg); const t = el('text', {x:x+4, y:14, style:`fill:${css('--std')}`}, svg); t.textContent = 'standard'; }
+  pairs.forEach(([k0, k1, integ], i) => {
+    const y = 24 + i*rowH + 14, c = css(COLORS[integ]), a = R[k0].final_val, b = R[k1].final_val;
+    const t = el('text', {x:lw-12, y:y+4, 'text-anchor':'end', style:`fill:${css('--ink-2')};font-size:12px`}, svg); t.textContent = integ;
+    const ln = el('line', {x1:X(a), x2:X(a), y1:y, y2:y, stroke:c, 'stroke-width':3, 'stroke-linecap':'round', 'stroke-opacity':.55}, svg);
+    el('circle', {cx:X(a), cy:y, r:6, fill:css('--panel'), stroke:c, 'stroke-width':2.5}, svg);
+    const dot = el('circle', {cx:X(a), cy:y, r:7, fill:c, stroke:css('--panel'), 'stroke-width':2}, svg);
+    const ta = el('text', {x:X(a), y:y-12, 'text-anchor':'middle'}, svg); ta.textContent = fmt(a, 3);
+    const tb = el('text', {x:X(b), y:y+22, 'text-anchor':'middle', style:`fill:${css('--ink')};font-weight:600`}, svg); tb.textContent = fmt(b, 3);
+    const go = () => { const t0 = performance.now(); const f = now => { const k = Math.min(1, (now - t0)/1300), e = 1 - Math.pow(1-k, 3), x = X(a) + (X(b) - X(a))*e; ln.setAttribute('x2', x); dot.setAttribute('cx', x); if (k < 1) requestAnimationFrame(f); }; requestAnimationFrame(f); };
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches){ ln.setAttribute('x2', X(b)); dot.setAttribute('cx', X(b)); }
+    else { const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting){ go(); io.disconnect(); } }), {threshold:.5}); io.observe(host); }
+  });
+  // gradient agreement, plain vs anchored
+  const names = Object.keys(P).filter(k => k.startsWith('drift_anchor_')).map(k => k.slice(13)).filter(n => P['drift_'+n]);
+  if (names.length){
+    const rows = [];
+    names.forEach(n => { const w0 = 1 - Math.min(...P['drift_'+n].grad.map(r=>r.cos)), w1 = 1 - Math.min(...P['drift_anchor_'+n].grad_anchored.map(r=>r.cos));
+      rows.push({label:`${n} · rebuilt`, v:Math.max(w0,1e-7), color:css('--bad'), alpha:.65, text:`cos ${fmt(1-w0,4)}`});
+      rows.push({label:`${n} · anchored`, v:Math.max(w1,1e-7), color:css('--rev'), text:`cos ${fmt(1-w1,4)}`}); });
+    hbar($('anc-fid'), rows, {log:true, labelW:200, rowH:22, aria:'Worst-layer gradient cosine, rebuilt vs anchored'});
+  }
+  // seeds
+  const sp = [['standard','baseline','baseline-s1'],['midpoint, no-kick','rev-midpoint-nokick','rev-midpoint-nokick-s1'],['leapfrog, Euler start, anchored','rev-anc-leapfrog-euler','rev-anc-leapfrog-euler-s1']].filter(p => R[p[1]] && R[p[2]]);
+  if (sp.length) $('seed-table').innerHTML = `<table><thead><tr><th>configuration (second seed check)</th><th></th><th>seed 0</th><th>seed 1</th><th>mean</th><th>|Δ seeds|</th></tr></thead><tbody>${sp.map(([l,a,b]) => `<tr><td>${l}</td><td></td><td>${fmt(R[a].final_val,4)}</td><td>${fmt(R[b].final_val,4)}</td><td><b>${fmt((R[a].final_val+R[b].final_val)/2,4)}</b></td><td>${fmt(Math.abs(R[a].final_val-R[b].final_val),4)}</td></tr>`).join('')}</tbody></table>`;
+});
+
+/* ---------------------------------------------------------------- cost */
+REDRAW.push(function cost(){
+  const inp = $('price');
+  const draw = () => { const p = +inp.value || 0; const runs = Object.values(R).sort((a,b)=>a.wall_s-b.wall_s);
+    hbar($('cost-bars'), runs.map(r => ({label: r.cfg.name, v: r.wall_s/3600*p, color: colorOf(r.cfg), alpha: r.cfg.ce_chunk ? .6 : 1, text: `$${fmt(r.wall_s/3600*p,3)} · ${int(r.wall_s)} s · $${fmt(r.wall_s/3600*p/(r.cfg.tokens/1e9),2)} per 1B tokens`})), {labelW:200, rowH:26, aria:'Cost per run'}); };
+  inp.addEventListener('input', draw); draw();
+});
+
+/* ---------------------------------------------------------------- findings */
+(function findings(){
+  const F = window.S13_FINDINGS || [];
+  $('find').innerHTML = F.map(f => `<div class="finding"><h3>${f[0]}</h3><p>${f[1]}</p></div>`).join('');
+  const C = window.S13_CLAIMS || [];
+  if (C.length) $('claims').innerHTML = `<table><thead><tr><th>lesson claim</th><th>what this repo measured</th><th>verdict</th></tr></thead><tbody>${C.map(c=>`<tr><td style="white-space:normal;min-width:220px">${c[0]}</td><td style="white-space:normal;text-align:left;min-width:260px">${c[1]}</td><td><span class="pill ${c[2]}">${{ok:'holds',part:'partly',no:'does not hold'}[c[2]]}</span></td></tr>`).join('')}</tbody></table>`;
+})();
+
+REDRAW.forEach(f => f());
+let rz; let lastW = innerWidth; addEventListener('resize', () => { if (Math.abs(innerWidth-lastW) < 24) return; lastW = innerWidth; clearTimeout(rz); rz = setTimeout(() => REDRAW.forEach(f => f()), 180); });
+/* re-render on theme change so SVG colours follow the tokens */
+const mq = window.matchMedia('(prefers-color-scheme: dark)');
+mq.addEventListener && mq.addEventListener('change', () => location.reload());
+})();
+</script>
+</body>
+</html>
